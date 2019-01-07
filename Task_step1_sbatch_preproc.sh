@@ -85,7 +85,7 @@ for j in ${block[@]}; do
 
 		# determine polort arg
 		len_tr=`fslhd ${j}.nii.gz | grep "pixdim4" | awk '{print $2}'`
-		pol_time=$(echo $(echo $hold*$len_tr | bc)/150 | bc)
+		pol_time=$(echo $(echo $hold*$len_tr | bc)/150 | bc -l)
 		pol=$((1 + `printf "%.0f" $pol_time`))
 
 		3dToutcount -automask -fraction -polort $pol -legendre ${j}+orig > outcount.${j}.1D
