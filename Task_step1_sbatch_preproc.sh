@@ -4,7 +4,7 @@
 #SBATCH --ntasks=6   # number of processor cores (i.e. tasks)
 #SBATCH --nodes=1   # number of nodes
 #SBATCH --mem-per-cpu=8gb   # memory per CPU core
-#SBATCH -J "sttN1"   # job name
+#SBATCH -J "con1"   # job name
 
 # Compatibility variables for PBS. Delete if not needed.
 export PBS_NODEFILE=`/fslapps/fslutils/generate_pbs_nodefile`
@@ -24,22 +24,13 @@ export OMP_NUM_THREADS=$SLURM_CPUS_ON_NODE
 #
 # 1) will do first preproc steps - volreg, align, tshift, scale, mask construction
 #
-# 2) uses FSL toolkits in addition to AFNI
+# 2) places needing researcher input are marked by "###??? update ..."
 #
-# 3) assumes files are called <EPI>+orig, which corresponds with $block, and struct+orig
-#		- script orients itself from $block
-#		- if your study has multiple phases (Study, Test) make sure each run shares the phase prefix
-# 			e.g. TEST1 phase is composed of 2 runs: TEST11 & TEST12. This is important for Task_step2
+# 3) big steps are marked "### --- foobar --- ###", annotations with "#"
 #
-# 4) places needing researcher input are marked by "###??? update ..."
+# 4) assumes dcm2niix/BIDS format
 #
-# 5) use testMode to save all intermediates
-#
-# 6) big steps are marked "### --- foobar --- ###", annotations with "#"
-#
-# 7) this script takes about 10 hours on my data
-#
-# 8) assumes dcm2nii was used to construct 3/4D files
+# 5) can accept blip scans (P->A), and should have one blip scan per phase
 
 
 
@@ -48,13 +39,177 @@ subj=$1
 
 
 ###??? update these
-workDir=~/compute/STT_new/$subj
+workDir=~/compute/Context_bids/derivatives/$subj
+dataDir=~/compute/Context_bids/$subj
 tempDir=~/bin/Templates/vold2_mni
 template=${tempDir}/vold2_mni_brain+tlrc
 priorDir=${tempDir}/priors_ACT
 
-block=(STUDY TEST1{1,2} TEST2{1..4})   		###??? update for multiple runs
+blip=1										# blip toggle (1=on)
+phaseArr=(STUDY TEST)						# Each PHASE of experiment, in order (TEST1 precedes TEST2 but followed STUDY). This is absolutely necessary - so put something here
+blockArr=(3 3)   							# number of blocks (runs) in each phase. E.g. STUDY had 1 block, TEST1 had 2 blocks. INTEGER!
+phaseLen=${#phaseArr[@]}
+doREML=0									# toggle for REML preparation (1=on) - not currently working
+
+
+
+### --- Set up --- ###
+#
+# Copies data to derivative $workDir, determines number
+# of EPI runs ($block, $numRuns).
+# Blocks are named according to their phase
+
+
+### Checks
+# check set up
+cd ${dataDir}/func
+
+if [ ${#phaseArr[@]} != ${#blockArr[@]} ]; then
+	echo "Replace user and try again - $phaseArr and $blockArr are not same length" >&2
+	exit 1
+fi
+
+
+# check blocks, names
+for i in ${blockArr[@]}; do
+	let totBlock+=$i
+done
+
+runCount=`ls *run*.nii.gz | wc -l`
+if [ $runCount != $totBlock ]; then
+	echo "Replace user and try again - sum of $blockArr and number of runs are not equal" >&2
+	exit 2
+fi
+
+# check blips
+blipCount=`ls *phase*.nii.gz | wc -l`
+if [ $blipCount != $phaseLen ]; then
+	echo "Replace user and try again - number of blips != number of phases" >&2
+	exit 3
+fi
+
+
+### Copy data
+# 3dcopy/rename epi data according to phase membership, determine number of blocks and set block arr
+c=0; for i in *run*.nii.gz; do
+
+	tmp=${i%_bold*}
+	run=${tmp##*_}
+
+	unset hold phaseName
+	x=0; while [ $x -lt $phaseLen ] && [ -z $phaseName ]; do
+		let hold+=${blockArr[$x]}
+		if [ $(($c+1)) -le $hold ]; then
+			phaseName=${phaseArr[$x]}
+		fi
+		let x=$[x+1]
+	done
+
+	if [ ! -f ${workDir}/${run}_${phaseName}+orig.HEAD ]; then
+		3dcopy $i ${workDir}/${run}_${phaseName}+orig
+	fi
+
+	block[$c]=${run}_${phaseName}
+	let c=$[$c+1]
+done
+
 numRuns=${#block[@]}
+
+
+# blip data
+if [ $blip == 1 ]; then
+	for((i=1; i<=$blipCount; i++)); do
+		if [ ! -f ${workDir}/phase${i}_Blip+orig.HEAD ]; then
+			3dcopy *phase-${i}_blip.nii.gz ${workDir}/phase${i}_Blip+orig
+		fi
+	done
+fi
+
+
+# get t1 data
+cd ${dataDir}/anat
+
+if  [ ! -f ${workDir}/struct+orig.HEAD ]; then
+	3dcopy *_T1w.nii.gz ${workDir}/struct+orig
+fi
+
+
+
+
+### --- Blip --- ###
+#
+# Correct for signal fallout in OFC by using data from an opposite phase encoding (Rev).
+# Find median datasets, compute midpoints, warp median datasets,
+# warp EPI timeseries
+
+
+cd $workDir
+
+if [ $blip == 1 ]; then
+	if [ ! -f run-1_${phaseArr[0]}_blip+orig.HEAD ]; then
+		for a in ${!phaseArr[@]}; do
+
+			# median blip
+			num=$(($a+1))
+			phase=${phaseArr[$a]}
+
+			3dTcat -prefix tmp_blip${num} phase${num}_Blip+orig
+			3dTstat -median -prefix tmp_blip${num}_med tmp_blip${num}+orig
+			3dAutomask -apply_prefix tmp_blip${num}_med_masked tmp_blip${num}_med+orig
+
+
+			# median task
+			unset tcat_input
+			for b in run-*${phase}+orig.HEAD; do
+				tcat_input+="${b%.*} "
+			done
+
+			3dTcat -prefix tmp_all${phase} $tcat_input
+			3dTstat -median -prefix tmp_all${phase}_med tmp_all${phase}+orig
+			3dAutomask -apply_prefix tmp_all${phase}_med_masked tmp_all${phase}_med+orig
+
+
+			# compute midpoint
+			3dQwarp -plusminus -pmNAMES Rev Task \
+				-pblur 0.05 0.05 -blur -1 -1 \
+				-noweight -minpatch 9 \
+				-source tmp_blip${num}_med_masked+orig \
+				-base tmp_all${phase}_med_masked+orig \
+				-prefix tmp_${phase}_warp
+
+
+			# warp median dsets/masks
+			3dNwarpApply -quintic -nwarp tmp_${phase}_warp_Task_WARP+orig \
+				-source tmp_all${phase}_med+orig \
+				-prefix tmp_all${phase}_NWA
+
+			3drefit -atrcopy tmp_all${phase}+orig IJK_TO_DICOM_REAL tmp_all${phase}_NWA+orig
+
+			3dNwarpApply -quintic -nwarp tmp_${phase}_warp_Task_WARP+orig \
+				-source tmp_all${phase}_med_masked+orig \
+				-prefix tmp_all${phase}_med_Task_masked
+
+			3drefit -atrcopy tmp_all${phase}+orig IJK_TO_DICOM_REAL tmp_all${phase}_med_Task_masked+orig
+
+
+			# warp EPI
+			for j in run-*_${phase}+orig.HEAD; do
+
+				scan=${j%+*}
+				if [ ! -f ${scan}_blip+orig.HEAD ]; then
+
+					3dNwarpApply -quintic -nwarp tmp_${phase}_warp_Task_WARP+orig \
+						-source ${j%.*} \
+						-prefix ${scan}_blip
+
+					3drefit -atrcopy tmp_all${phase}+orig IJK_TO_DICOM_REAL ${scan}_blip+orig
+				fi
+			done
+			rm tmp_*
+		done
+	fi
+fi
+
 
 
 
@@ -64,31 +219,31 @@ numRuns=${#block[@]}
 # Outliers will be detected for later exclusion. The TR of the
 # experiment with the minimum noise will become the volume registration
 # base and used to construct a volreg_base file.
+#
+# The blip file will now be incorporated to account for signal fallout
 
-
-cd $workDir
 
 for j in ${block[@]}; do
 
-	# in case of dcm2nii
-	if [ ! -f ${j}+orig.HEAD ] && [ -f ${j}.nii.gz ]; then
-		3dcopy ${j}.nii.gz ${j}+orig
+	if [ blip == 1 ]; then
+		input=${j}_blip+orig
+	else
+		input=${j}+orig
 	fi
 
-
 	# build outcount list
-	hold=`fslhd ${j}.nii.gz | grep -m 1 "dim4" | awk '{print $2}'`
+	hold=`3dinfo -ntimes $input`
 	tr_counts+="$hold "
 
 
 	if [ ! -s outcount.${j}.1D ]; then
 
 		# determine polort arg
-		len_tr=`fslhd ${j}.nii.gz | grep "pixdim4" | awk '{print $2}'`
+		len_tr=`3dinfo -tr $input`
 		pol_time=$(echo $(echo $hold*$len_tr | bc)/150 | bc -l)
 		pol=$((1 + `printf "%.0f" $pol_time`))
 
-		3dToutcount -automask -fraction -polort $pol -legendre ${j}+orig > outcount.${j}.1D
+		3dToutcount -automask -fraction -polort $pol -legendre $input > outcount.${j}.1D
 
 
 		# censor
@@ -99,7 +254,6 @@ for j in ${block[@]}; do
 		fi
 	fi
 done
-
 
 
 if [ ! -f epi_vr_base+orig.HEAD ]; then
@@ -114,7 +268,7 @@ if [ ! -f epi_vr_base+orig.HEAD ]; then
 
 
 	### Time shift here, skipping for multiband/dcm2nii.
-	# T-shifted base would be input for nex step (3dbucket)
+	# T-shifted base would be input for next step (3dbucket)
 
 
 	# determine volreg base by matching $ovals, could be in any run
@@ -127,8 +281,14 @@ if [ ! -f epi_vr_base+orig.HEAD ]; then
 
 
 	# construct volreg base, print out
-	3dbucket -prefix epi_vr_base ${baseRun}+orig"[${minouttr}]"
-	echo "$minoutrun $minouttr $baseRun" > out_vr_base.txt
+	if [ $blip == 1 ]; then
+		newBase=${baseRun}_blip
+	else
+		newBase=$baseRun
+	fi
+
+	3dbucket -prefix epi_vr_base ${newBase}+orig"[${minouttr}]"
+	echo "$minoutrun $minouttr $newBase" > out_vr_base.txt
 fi
 
 
@@ -149,12 +309,6 @@ fi
 
 if [ ! -s anat.un.aff.Xat.1D ]; then
 
-	# in case of dcm2nii
-	if [ ! -f struct+orig.HEAD ] && [ -f struct.nii.gz ]; then
-		3dcopy struct.nii.gz struct
-	fi
-
-
 	# calc align of epi/anat
 	align_epi_anat.py \
 	-anat2epi \
@@ -172,24 +326,30 @@ if [ ! -s anat.un.aff.Xat.1D ]; then
 	# calc non-linear warp
 	auto_warp.py -base $template -input struct_ns+orig -skull_strip_input no
 	3dbucket -prefix struct_ns awpy/struct_ns.aw.nii*
-	mv awpy/anat.un.aff.Xat.1D .
-	mv awpy/anat.un.aff.qw_WARP.nii .
+	cp awpy/anat.un.aff.Xat.1D .
+	cp awpy/anat.un.aff.qw_WARP.nii .
 fi
 
 
-# determine voxel size
-gridSize=`fslhd ${block[0]}.nii.gz | grep "pixdim1" | awk '{print $2}'`
+# determine voxel size - assumes isotropic voxels
+gridSize=`3dinfo -di ${block[0]}+orig`
 
 
 for j in ${block[@]}; do
 	if [ ! -f tmp_${j}_mask_warped+tlrc.HEAD ]; then
+
+		if [ blip == 1 ]; then
+			input=${j}_blip+orig
+		else
+			input=${j}+orig
+		fi
 
 		# calc volreg
 		3dvolreg -verbose -zpad 1 -base epi_vr_base+orig \
 		-1Dfile dfile.${j}.1D -prefix ${j}_volreg \
 		-cubic \
 		-1Dmatrix_save mat.${j}.vr.aff12.1D \
-		${j}+orig
+		$input
 
 
 		# concat calcs for epi movement (volreg, align, warp)
@@ -202,13 +362,13 @@ for j in ${block[@]}; do
 		# warp epi
 		3dNwarpApply -master struct_ns+tlrc \
 		-dxyz $gridSize \
-		-source ${j}+orig \
+		-source $input \
 		-nwarp "anat.un.aff.qw_WARP.nii mat.${j}.warp.aff12.1D" \
 		-prefix tmp_${j}_nomask
 
 
 		# warp mask for extents masking; make intersection mask (epi+anat)
-		3dcalc -overwrite -a ${j}+orig -expr 1 -prefix tmp_${j}_mask
+		3dcalc -overwrite -a $input -expr 1 -prefix tmp_${j}_mask
 
 		3dNwarpApply -master struct_ns+tlrc \
 		-dxyz $gridSize \
@@ -304,46 +464,49 @@ if [ ! -f final_anat_mask+tlrc.HEAD ]; then
 fi
 
 
-## segment tissue class, generate masks
-#3dSeg -anat final_anat+tlrc -mask AUTO -classes 'CSF ; GM ; WM'
+## segment tissue class, generate masks    				#### to do: fix this section for step2 REML
+if [ doREML == 1 ]; then
 
-#for j in CSF GM WM; do
+	## AFNI way
+	#3dSeg -anat final_anat+tlrc -mask AUTO -classes 'CSF ; GM ; WM'
 
-	#3dmask_tool -input Segsy/Classes+tlrc"<${j}>" -prefix tmp_mask_$j
-	#3dresample -master ${block[0]}_volreg_clean+tlrc -rmode NN -input tmp_mask_${j}+tlrc -prefix final_mask_${j}
-	#3dmask_tool -input Segsy/Classes+tlrc"<${j}>" -dilate_input -1 -prefix tmp_mask_${j}_eroded
-	#3dresample -master ${block[0]}_volreg_clean+tlrc -rmode NN -input tmp_mask_${j}_eroded+tlrc -prefix final_mask_${j}_eroded
-#done
+	#for j in CSF GM WM; do
+
+		#3dmask_tool -input Segsy/Classes+tlrc"<${j}>" -prefix tmp_mask_$j
+		#3dresample -master ${block[0]}_volreg_clean+tlrc -rmode NN -input tmp_mask_${j}+tlrc -prefix final_mask_${j}
+		#3dmask_tool -input Segsy/Classes+tlrc"<${j}>" -dilate_input -1 -prefix tmp_mask_${j}_eroded
+		#3dresample -master ${block[0]}_volreg_clean+tlrc -rmode NN -input tmp_mask_${j}_eroded+tlrc -prefix final_mask_${j}_eroded
+	#done
 
 
-# seg tissue class, with Atropos priors, for REML step
-if [ ! -f final_mask_GM_eroded+tlrc.HEAD ]; then
+	# seg tissue class, with Atropos priors, for REML step
+	if [ ! -f final_mask_GM_eroded+tlrc.HEAD ]; then
 
-	# get priors
-	tiss=(CSF GMc WM GMs)
-	prior=(Prior{1,2,3,4})
-	tissN=${#tiss[@]}
+		 get priors
+		tiss=(CSF GMc WM GMs)
+		prior=(Prior{1..4})
+		tissN=${#tiss[@]}
 
-	c=0; while [ $c -lt $tissN ]; do
-		cp ${priorDir}/${prior[$c]}.nii.gz ./tmp_${tiss[$c]}.nii.gz
-		let c=$[$c+1]
-	done
-	c3d tmp_GMc.nii.gz tmp_GMs.nii.gz -add -o tmp_GM.nii.gz
+		c=0; while [ $c -lt $tissN ]; do
+			cp ${priorDir}/${prior[$c]}.nii.gz ./tmp_${tiss[$c]}.nii.gz
+			let c=$[$c+1]
+		done
+		c3d tmp_GMc.nii.gz tmp_GMs.nii.gz -add -o tmp_GM.nii.gz
 
-	# resample; erode - ### Fix this
-	for i in CSF GM WM; do
+		 resample; erode - ### Fix this
+		for i in CSF GM WM; do
 
-		3dresample -master ${block[0]}_volreg_clean+tlrc -rmode NN -input tmp_${i}.nii.gz -prefix final_mask_${i}+tlrc
-		#3dmask_tool -input tmp_${i}.nii.gz -dilate_input -1 -prefix tmp_mask_${i}_eroded
-		#3dresample -master ${block[0]}_volreg_clean+tlrc -rmode NN -input tmp_mask_${i}_eroded+orig -prefix final_mask_${i}_eroded
-	done
+			3dresample -master ${block[0]}_volreg_clean+tlrc -rmode NN -input tmp_${i}.nii.gz -prefix final_mask_${i}+tlrc
+			3dmask_tool -input tmp_${i}.nii.gz -dilate_input -1 -prefix tmp_mask_${i}_eroded
+			3dresample -master ${block[0]}_volreg_clean+tlrc -rmode NN -input tmp_mask_${i}_eroded+orig -prefix final_mask_${i}_eroded
+		done
+	fi
 fi
-
 
 
 ### --- Scale --- ###
 #
-# Data is scaled by mean signal. Gotta reduce them confounds.
+# Data is scaled by mean signal - gotta reduce them confounds.
 
 
 for j in ${block[@]}; do
