@@ -17,19 +17,19 @@
 
 
 # Variables
-workDir=/Volumes/Yorick/STT_new							###??? Update this section
+workDir=/Volumes/Yorick/STT_bids/derivatives						###??? Update this section
 grpDir=${workDir}/Analyses/grpAnalysis
 clustDir=${grpDir}/etac_clusters
 outDir=${grpDir}/etac_betas
-refFile=${workDir}/s1295/TEST24_scale.nii.gz			# reference file for dimensions etc
+refFile=${workDir}/sub-1295/run-1_STUDY_scale+tlrc					# reference file for dimensions etc
 
 
-fileArr=(SpT1 SpT1pT2 T1 T1pT2 T2 T2fT1)				# decon files from which betas will be extracted - should match step4
-arrA=(33 39 53 59 97 103)								# sub-brik A
-arrB=(36 42 56 62 100 106)
+fileArr=(SpT1 T1 T1pT2 T2fT1)										# decon files from which betas will be extracted - should match step4. Only include prefixes for files that have results
+arrA=(33 53 59 97)													# sub-bricks corresponding to $fileArr
+arrB=(36 56 62 103)
 arrLen=${#arrA[@]}
 
-blurX=2													# first mulitplier from step 4
+blurX=2																# first mulitplier from step 4
 
 
 # function - search array for string
@@ -49,7 +49,7 @@ fi
 
 
 # determine blur
-gridSize=`fslhd $refFile | grep "pixdim1" | awk '{print $2}'`
+gridSize=`3dinfo -dk $refFile`
 blurH=`echo $gridSize*$blurX | bc`
 blurInt=`printf "%.0f" $blurH`
 
@@ -74,7 +74,7 @@ c=0; while [ $c -lt $arrLen ]; do
 	# make subj list
 	unset subjHold
 	arrRem=(`cat ${grpDir}/info_rmSubj_${hold}.txt`)
-	for i in ${workDir}/s*; do										###??? Check this
+	for i in ${workDir}/s*; do
 		subj=${i##*\/}
 		MatchString "$subj" "${arrRem[@]}"
 		if [ $? == 1 ]; then
@@ -106,26 +106,21 @@ c=0; while [ $c -lt $arrLen ]; do
 
 		tmp=${i##*_}
 		cnum=${tmp%+*}
+		print=${outDir}/Betas_${hold}_${cnum}.txt
+		> $print
 
-		if [ ! -s ${outDir}/Master_${hold}_betas.txt ]; then
-			if [ ! -s ${outDir}/Betas_${hold}_${cnum}.txt ]; then
+		for j in ${subjList[@]}; do
+			subjDir=${workDir}/${j}
 
-				print=${outDir}/Betas_${hold}_${cnum}.txt
-				> $print
-
-				for j in ${subjList[@]}; do
-
-					subjDir=${workDir}/${j}
-					if [ ! -f ${subjDir}/${hold}_stats_blur${blurInt}+tlrc.HEAD ]; then
-						3dmerge -prefix ${subjDir}/${hold}_stats_blur${blurInt} -1blur_fwhm $blurInt -doall ${subjDir}/${hold}_stats+tlrc
-					fi
-
-					file=${subjDir}/${hold}_stats_blur${blurInt}+tlrc
-					stats=`3dROIstats -mask $i "${file}[${betas}]"`
-					echo "$j $stats" >> $print
-				done
+			# blur
+			if [ ! -f ${subjDir}/${hold}_stats_blur${blurInt}+tlrc.HEAD ]; then
+				3dmerge -prefix ${subjDir}/${hold}_stats_blur${blurInt} -1blur_fwhm $blurInt -doall ${subjDir}/${hold}_stats+tlrc
 			fi
-		fi
+
+			file=${subjDir}/${hold}_stats_blur${blurInt}+tlrc
+			stats=`3dROIstats -mask $i "${file}[${betas}]"`
+			echo "$j $stats" >> $print
+		done
 	done
 	let c=$[$c+1]
 done
