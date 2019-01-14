@@ -3,25 +3,24 @@
 
 
 
-
-workDir=~/compute/STT_new
-scriptDir=${workDir}/Scripts
-slurmDir=${workDir}/Slurm_out
+###??? update these
+workDir=~/compute/STT_bids
+scriptDir=${workDir}/code
+slurmDir=${workDir}/derivatives/Slurm_out
 time=`date '+%Y_%m_%d-%H_%M_%S'`
 outDir=${slurmDir}/sttN2_${time}
 
 mkdir -p $outDir
 
 cd $workDir
-for i in s*; do
+for i in sub*; do
 
-	# keep s1949 intermediates
-	[ $i == s1949 ]; test=$?
+	[ $i == sub-1295 ]; test=$?
 
     sbatch \
     -o ${outDir}/output_sttN2_${i}.txt \
     -e ${outDir}/error_sttN2_${i}.txt \
-    ${scriptDir}/Task_step2_sbatch_regress_condensed.sh $i $test
+    ${scriptDir}/Task_step2_sbatch_regress.sh $i $test
 
     sleep 1
 done
