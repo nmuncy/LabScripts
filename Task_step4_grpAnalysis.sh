@@ -3,7 +3,7 @@
 #SBATCH --time=40:00:00   # walltime
 #SBATCH --ntasks=10   # number of processor cores (i.e. tasks)
 #SBATCH --nodes=1   # number of nodes
-#SBATCH --mem-per-cpu=8gb   # memory per CPU core
+#SBATCH --mem-per-cpu=10gb   # memory per CPU core
 #SBATCH -J "sttN4"   # job name
 
 # Compatibility variables for PBS. Delete if not needed.
@@ -86,32 +86,33 @@ export OMP_NUM_THREADS=$SLURM_CPUS_ON_NODE
 
 
 # General variables
-workDir=~/compute/STT_new									# par dir of data
-outDir=${workDir}/Analyses/test								# where output will be written (should match step3)
+workDir=~/compute/STT_bids/derivatives						# par dir of data
+outDir=${workDir}/Analyses/grpAnalysis						# where output will be written (should match step3)
+refFile=${workDir}/sub-1295/run-1_STUDY_scale+tlrc			# reference file, for finding dimensions etc
+
 tempDir=~/bin/Templates/vold2_mni							# desired template
 priorDir=${tempDir}/priors_ACT								# location of atropos priors
-refFile=${workDir}/s1295/TEST24_scale.nii.gz				# reference file for dimensions etc
-mask=Intersection_GM_mask+tlrc								# this will be made
+mask=Intersection_GM_mask+tlrc								# this will be made, just specify name for the interesection gray matter mask
 
 
 # grpAnalysis
-doETAC=0													# Toggle ETAC analysis
-doACF=1														# MVM
-runIt=1														# whether ETAC/MVM actually run (and not just written)
+doETAC=1													# Toggle ETAC analysis
+doMVM=0														# MVM
+runIt=1														# whether ETAC/MVM scripts actually run (and not just written)
 
 thr=0.3														# thresh value for Group_EPI_mask, ref Group_EPI_mean
 
-compList=(SpT1 T1 T1pT2 )									# matches decon prefixes, and will be prefix of output files
+compList=(SpT1 SpT1pT2 T1 T1pT2 T2 T2fT1)					# matches decon prefixes, and will be prefix of output files
 compLen=${#compList[@]}
 
-arrA=(33 53 59)												# setA beh sub-brik for compList. Must be same length as compList
-arrB=(36 56 62)												# setB
-arrC=(39 59 65)
-listX=ABC													# list of arr? used, for building permutations
+arrA=(33 39 53 59 97 97)									# setA beh sub-brik for compList. Must be same length as compList
+arrB=(36 42 56 62 100 103)									# setB
+#arrC=(39 59 65)
+listX=AB													# list of arr? used, for building permutations (e.g. listX=ABC)
 
-namA=(RpH Hit FpH)											# names of behaviors from arrA. Must be same length as arrA
-namB=(RpF FA FpF)
-namC=(RpCR CR MpH)
+namA=(RpH RpFH Hit FpH Hit HpH)								# names of behaviors from arrA. Must be same length as arrA
+namB=(RpF RpFF FA  FpF FA  FpH)
+#namC=(RpCR CR MpH)
 
 
 # ETAC arrs
@@ -203,16 +204,10 @@ cd $outDir
 
 if [ $runIt == 1 ]; then
 
-	# ref file
-	if [ ! -f $refFile ]; then
-		3dcopy ${refFile%.nii*}+tlrc $refFile							###??? check this line
-	fi
-
-
 	# intersection mask
-	if [ ! -f Group_epi_mask.nii.gz ]; then
+	if [ ! -f Group_epi_mask.nii.gz ] && [ ! -f etac_extra/Group_epi_mask.nii.gz ]; then
 
-		for i in ${workDir}/s*; do                                    	###??? check this line
+		for i in ${workDir}/s*; do
 			list+="${i}/mask_epi_anat+tlrc "
 		done
 
@@ -225,13 +220,14 @@ if [ $runIt == 1 ]; then
 	if [ ! -f ${mask}.HEAD ]; then
 
 		# GM mask
-		c3d ${priorDir}/Prior2.nii.gz ${priorDir}/Prior4.nii.gz -add -o Prior_GM.nii.gz
-		3dresample -master $refFile -rmode NN -input Prior_GM.nii.gz -prefix Template_GM_mask.nii.gz
+		c3d ${priorDir}/Prior2.nii.gz ${priorDir}/Prior4.nii.gz -add -o tmp_Prior_GM.nii.gz
+		3dresample -master $refFile -rmode NN -input tmp_Prior_GM.nii.gz -prefix tmp_Template_GM_mask.nii.gz
 
 		# combine GM and intersection mask
-		c3d Template_GM_mask.nii.gz Group_epi_mask.nii.gz -multiply -o Intersection_GM_prob_mask.nii.gz
-		c3d Intersection_GM_prob_mask.nii.gz -thresh 0.1 1 1 0 -o Intersection_GM_mask.nii.gz
-		3dcopy Intersection_GM_mask.nii.gz $mask
+		c3d tmp_Template_GM_mask.nii.gz Group_epi_mask.nii.gz -multiply -o tmp_Intersection_GM_prob_mask.nii.gz
+		c3d tmp_Intersection_GM_prob_mask.nii.gz -thresh 0.1 1 1 0 -o tmp_Intersection_GM_mask.nii.gz
+		3dcopy tmp_Intersection_GM_mask.nii.gz $mask
+		rm tmp*
 	fi
 
 
@@ -271,9 +267,10 @@ if [ $doETAC == 1 ]; then
 
 
 	# gen $blur
-	gridSize=`fslhd $refFile | grep "pixdim1" | awk '{print $2}'`
+	gridSize=`3dinfo -dk $refFile`
 	int=`printf "%.0f" $gridSize`
 
+	unset blur
 	c=0; for i in ${blurX[@]}; do
 		hold="$(($int * $i))"
 		blur+="$hold "
@@ -285,7 +282,7 @@ if [ $doETAC == 1 ]; then
 	# do ETAC for e/permutation of sub-briks, for each $compList
 	c=0; while [ $c -lt $compLen ]; do
 
-		# variables													###??? check these, especially if running multiple tests on same decon file
+		# variables
 		pref=${compList[$c]}
 		scan=${pref}_stats+tlrc
 		outPre=${pref}_ETAC_Decon
@@ -311,7 +308,7 @@ if [ $doETAC == 1 ]; then
 			unset ListA
 			unset ListB
 
-		    for i in ${workDir}/s*; do                      		###??? check this line
+		    for i in ${workDir}/s*; do
 
 				subj=${i##*\/}
 				MatchString "$subj" "${arrRem[@]}"
@@ -339,31 +336,55 @@ if [ $doETAC == 1 ]; then
 			# Do ETAC
 			if [ $runIt == 1 ]; then
 
-				if [ ! -f ${out}.B${blur:0:1}.0.nii ]; then
+				if [ ! -f ${out}.B${blur:0:1}.0.nii ] && [ ! -f FINALall_${out}+tlrc.HEAD ]; then
 					source ${outDir}/${out}.sh
 				fi
 
-	            # Extract sig clusters
-				for j in ${blurArr[@]}; do
-			        if [ ! -f ${out}_B${j}_allMask+tlrc.HEAD ]; then
+				# for older versions (just upgrade you lazy cur)      ##### to do: update this for a better solution
+	            afniVer=`afni -ver | sed 's/[^0-9]//g'`
+	            if [ ${afniVer:7} != 18315 ]; then
 
-			            3dMultiThresh \
-			            -mthresh ${out}_clustsim.NN1.ETAC.mthresh.B${j}.0.5perc.nii \
-			            -input ${out}.B${j}.0.nii \
-			            -1tindex 1 \
-			            -prefix ${out}_B${j}_allMask \
-			            -allmask ${out}_B${j}_binMask
-			        fi
-			    done
+					for j in ${blurArr[@]}; do
+				        if [ ! -f ${out}_B${j}_allMask+tlrc.HEAD ]; then
 
-			    # Stitch together
-			    if [ ! -f FINALall_${out}+tlrc.HEAD ]; then
-					3dMean -sum -prefix FINALall_${out} ${out}_B*_allMask+tlrc.HEAD
+				            # Extract sig clusters
+				            3dMultiThresh \
+				            -mthresh ${out}_clustsim.NN1.ETAC.mthresh.B${j}.0.5perc.nii \
+				            -input ${out}.B${j}.0.nii \
+				            -1tindex 1 \
+				            -prefix ${out}_B${j}_allMask \
+				            -allmask ${out}_B${j}_binMask
+				        fi
+				    done
+
+				    # Stitch together
+				    if [ ! -f FINALall_${out}+tlrc.HEAD ]; then
+						3dMean -sum -prefix FINALall_${out} ${out}_B*_allMask+tlrc.HEAD
+				    fi
+
+			    else
+
+				    # pull final output
+				    if [ ! -f FINALall_${out}+tlrc.HEAD ]; then
+						3dcopy ${out}_clustsim.NN1.ETACmask.global.2sid.5perc.nii.gz FINALall_${out}+tlrc
+					fi
 			    fi
 		    fi
 		done
 
 		let c=$[$c+1]
+	done
+
+
+	# clean up
+	mkdir etac_extra etac_scripts
+	mv *.sh etac_scripts
+	mv Group* etac_extra
+	mv Prior* etac_extra
+	mv global* etac_extra
+
+	for i in ${compList[@]}; do
+		mv ${i}* etac_extra
 	done
 fi
 
@@ -385,7 +406,7 @@ fi
 # more comparisons in the future.
 
 
-if [ $doACF == 1 ]; then
+if [ $doMVM == 1 ]; then
 
 	if [ ${#listX} -lt 3 ] && [ ${#bsArr[@]} == 1 ]; then
 		echo "Replace user and try again - don't use ACF for a pairwise comparison" >&2
@@ -403,7 +424,7 @@ if [ $doACF == 1 ]; then
 		# make subj list
 		unset subjList
 
-		for j in ${workDir}/s*; do                      			###??? check this line
+		for j in ${workDir}/s*; do
 
 			arrRem=(`cat info_rmSubj_${pref}.txt`)
 			subj=${j##*\/}
@@ -416,7 +437,7 @@ if [ $doACF == 1 ]; then
 
 
 		# blur, determine parameter estimate
-		gridSize=`fslhd $refFile | grep "pixdim1" | awk '{print $2}'`
+		gridSize=`3dinfo -dk $refFile`
 		blurH=`echo $gridSize*$blurM | bc`
 		blurInt=`printf "%.0f" $blurH`
 		scan=${pref}_stats_blur${blurInt}+tlrc
@@ -485,7 +506,6 @@ if [ $doACF == 1 ]; then
 					name2=$(eval echo \${${nam2}[$arrCount]})
 
 					conVar+="-gltLabel $gltCount ${bsLab}_${name1}-${name2} -gltCode $gltCount '${bsVars}: $bsCon WSVARS: 1*$name1 -1*$name2' "
-
 				done
 			done
 
