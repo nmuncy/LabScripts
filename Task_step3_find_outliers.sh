@@ -23,10 +23,10 @@ module load r/3/5
 
 
 ###??? update these
-workDir=~/compute/STT_new
+workDir=~/compute/STT_bids/derivatives
 grpDir=${workDir}/Analyses/grpAnalysis
-refDir=${workDir}/s1295
-maxP=0.03								# max percentage of censored TRs allowed
+refDir=${workDir}/sub-1295
+maxP=0.03								# max percentage of censored TRs allowed (0.03 = 3%)
 
 mkdir -p $grpDir
 
@@ -41,7 +41,7 @@ c=0; for i in *stats+tlrc.HEAD; do
 done
 
 
-
+### Determine subjects with many motion events
 cd $workDir
 
 for i in ${deconList[@]}; do
@@ -50,7 +50,7 @@ for i in ${deconList[@]}; do
 	print=${grpDir}/info_numCens_${i}.txt
 	echo -e "Subj \t NumCen \t PropCen" > $print
 
-	for j in s*; do								###??? check this
+	for j in s*; do
 
 		cenN=`cat ${j}/out_summary_${i}.txt | grep -m 1 "TRs censored" | sed "s/[^0-9]//g"`
 		cenP=`cat ${j}/out_summary_${i}.txt | grep "censor fraction" | awk '{print $4}'`
@@ -86,5 +86,3 @@ for i in ${deconList[@]}; do
 		let c=$[$c+1]
 	done
 done
-
-
