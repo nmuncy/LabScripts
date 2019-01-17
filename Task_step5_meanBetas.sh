@@ -13,6 +13,8 @@
 #		comparisonString should match the decon prefix (step4 $etacList)
 #
 # 3) assumes that decon files exist locally (bring them back from the supercomputer)
+#
+# 4) Written for the output of ETAC - will pull betas for each appropriate blur from eaach cluster
 
 
 
@@ -24,12 +26,12 @@ outDir=${grpDir}/etac_betas
 refFile=${workDir}/sub-1295/run-1_STUDY_scale+tlrc					# reference file for dimensions etc
 
 
-fileArr=(SpT1 T1 T1pT2 T2fT1)										# decon files from which betas will be extracted - should match step4. Only include prefixes for files that have results
-arrA=(33 53 59 97)													# sub-bricks corresponding to $fileArr
-arrB=(36 56 62 103)
+fileArr=(SpT1 SpT1pT2 T1 T1pT2 T2 T2fT1)							# decon files from which betas will be extracted - should match step4.
+arrA=(33 39 53 59 97 97)											# sub-bricks corresponding to $fileArr
+arrB=(36 42 56 62 100 103)
 arrLen=${#arrA[@]}
 
-blurX=2																# first mulitplier from step 4
+blurX=({2..4})														# blur mulitpliers from previous steps
 
 
 # function - search array for string
@@ -42,7 +44,8 @@ MatchString (){
 
 
 # check
-if [ ${#fileArr[@]} != $arrLen ] || [ ${#arrB[@]} != $arrLen ]; then
+test1=${#fileArr[@]}; test2=${#arrB[@]}
+if [ $test1 != $arrLen ] || [ $test2 != $arrLen ]; then
 	echo "Replace user and try again - script set up incorreclty" >&2
 	exit 1
 fi
@@ -50,15 +53,37 @@ fi
 
 # determine blur
 gridSize=`3dinfo -dk $refFile`
-blurH=`echo $gridSize*$blurX | bc`
-blurInt=`printf "%.0f" $blurH`
+int=`printf "%.0f" $gridSize`
 
+c=0; for i in ${blurX[@]}; do
+	hold="$(($int * $i))"
+	blurArr[$c]=$hold
+	let c=$[$c+1]
+done
+blurLen=${#blurArr[@]}
+
+
+
+### make clusters, tables
+mkdir $outDir $clustDir
+cd ${grpDir}/etac_indiv
+
+for i in FINAL_*allP*.HEAD; do
+
+	tmp1=${i%_ET*}; pref=${tmp1##*_}
+	tmp2=${i#*_}; blur=${tmp2%%_*}
+
+	if [ ! -f ${clustDir}/Clust_${pref}_${blur}_table.txt ]; then
+
+		3dclust -1Dformat -nosum -1dindex 0 \
+		-1tindex 0 -2thresh -0.5 0.5 -dxyz=1 \
+		-savemask Clust_${pref}_${blur}_mask \
+		1.01 20 $i > Clust_${pref}_${blur}_table.txt
+	fi
+done
 
 # organize
-mkdir $outDir
-mkdir $clustDir
-
-mv ${grpDir}/Clust* $clustDir
+mv Clust* $clustDir
 
 
 
@@ -69,7 +94,6 @@ c=0; while [ $c -lt $arrLen ]; do
 
 	hold=${fileArr[$c]}
 	betas=${arrA[$c]},${arrB[$c]}
-
 
 	# make subj list
 	unset subjHold
@@ -85,83 +109,91 @@ c=0; while [ $c -lt $arrLen ]; do
 
 
 	# split clust masks
-	if [ ! -f Clust_${hold}_c1+tlrc.HEAD ]; then
+	d=0; while [ $d -lt $blurLen ]; do
 
-		3dcopy Clust_${hold}_mask+tlrc ${hold}.nii.gz
-		num=`3dinfo Clust_${hold}_mask+tlrc | grep "At sub-brick #0 '#0' datum type is short" | sed 's/[^0-9]*//g' | sed 's/^...//'`
+		blurInt=${blurArr[$d]}
 
-		for (( j=1; j<=$num; j++ )); do
-			if [ ! -f Clust_${hold}_c${j}+tlrc.HEAD ]; then
+		if [ -f Clust_${hold}_b${blurInt}_mask+tlrc.HEAD ]; then
+			if [ ! -f Clust_${hold}_b${blurInt}_c1+tlrc.HEAD ]; then
 
-				c3d ${hold}.nii.gz -thresh $j $j 1 0 -o ${hold}_${j}.nii.gz
-				3dcopy ${hold}_${j}.nii.gz Clust_${hold}_c${j}+tlrc
-			fi
-		done
-		rm *.nii.gz
-	fi
+				3dcopy Clust_${hold}_b${blurInt}_mask+tlrc ${hold}_b${blurInt}.nii.gz
+				num=`3dinfo Clust_${hold}_b${blurInt}_mask+tlrc | grep "At sub-brick #0 '#0' datum type is short" | sed 's/[^0-9]*//g' | sed 's/^...//'`
 
+				for (( j=1; j<=$num; j++ )); do
+					if [ ! -f Clust_${hold}_b${blurInt}_c${j}+tlrc.HEAD ]; then
 
-	# pull betas
-	for i in Clust_${hold}_c*+tlrc.HEAD; do
-
-		tmp=${i##*_}
-		cnum=${tmp%+*}
-		print=${outDir}/Betas_${hold}_${cnum}.txt
-		> $print
-
-		for j in ${subjList[@]}; do
-			subjDir=${workDir}/${j}
-
-			# blur
-			if [ ! -f ${subjDir}/${hold}_stats_blur${blurInt}+tlrc.HEAD ]; then
-				3dmerge -prefix ${subjDir}/${hold}_stats_blur${blurInt} -1blur_fwhm $blurInt -doall ${subjDir}/${hold}_stats+tlrc
+						c3d ${hold}_b${blurInt}.nii.gz -thresh $j $j 1 0 -o ${hold}_b${blurInt}_${j}.nii.gz
+						3dcopy ${hold}_b${blurInt}_${j}.nii.gz Clust_${hold}_b${blurInt}_c${j}+tlrc
+					fi
+				done
+				rm *.nii.gz
 			fi
 
-			file=${subjDir}/${hold}_stats_blur${blurInt}+tlrc
-			stats=`3dROIstats -mask $i "${file}[${betas}]"`
-			echo "$j $stats" >> $print
-		done
+
+			# pull betas
+			for i in Clust_${hold}_b${blurInt}_c*+tlrc.HEAD; do
+
+				tmp=${i##*_}
+				cnum=${tmp%+*}
+				print=${outDir}/Betas_${hold}_b${blurInt}_${cnum}.txt
+				> $print
+
+				for j in ${subjList[@]}; do
+					subjDir=${workDir}/${j}
+
+					# blur
+					if [ ! -f ${subjDir}/${hold}_stats_blur${blurInt}+tlrc.HEAD ]; then
+						3dmerge -prefix ${subjDir}/${hold}_stats_blur${blurInt} -1blur_fwhm $blurInt -doall ${subjDir}/${hold}_stats+tlrc
+					fi
+
+					file=${subjDir}/${hold}_stats_blur${blurInt}+tlrc
+					stats=`3dROIstats -mask $i "${file}[${betas}]"`
+					echo "$j $stats" >> $print
+				done
+			done
+		fi
+		let d=$[$d+1]
 	done
 	let c=$[$c+1]
 done
 
 
 
-### organize prints into Master files
-cd $outDir
+#### organize prints into Master files
+#cd $outDir
 
-# make master files
-for i in Betas*_c1.txt; do
+## make master files
+#for i in Betas*_c1.txt; do
 
-	tmp=${i#*_}
-	string=${tmp%_*}
-    > Master_${string}_betas.txt
-done
-
-
-# fill master files
-for j in Betas*; do
-
-    tmp1=${j#*_}
-	tmp2=${j##*_}
-
-	maskN=${tmp2%.*}
-	string=${tmp1%_c*}
-	print=Master_${string}_betas.txt
-
-	echo "Mask $maskN" >> $print
-	cat $j >> $print
-	echo >> $print
-done
+	#tmp=${i#*_}
+	#string=${tmp%_*}
+    #> Master_${string}_betas.txt
+#done
 
 
-# make list for R script
-> Final_List.txt
-for i in Master*; do
-	tmp=${i#*_}
-    echo ${tmp%.*} >> Final_List.txt
-done
+## fill master files
+#for j in Betas*; do
+
+    #tmp1=${j#*_}
+	#tmp2=${j##*_}
+
+	#maskN=${tmp2%.*}
+	#string=${tmp1%_c*}
+	#print=Master_${string}_betas.txt
+
+	#echo "Mask $maskN" >> $print
+	#cat $j >> $print
+	#echo >> $print
+#done
+
+
+## make list for R script
+#> Final_List.txt
+#for i in Master*; do
+	#tmp=${i#*_}
+    #echo ${tmp%.*} >> Final_List.txt
+#done
 
 
 # clean
-rm Betas*txt
+#rm Betas*txt
