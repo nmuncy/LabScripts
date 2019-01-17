@@ -82,11 +82,14 @@ if [ $runCount != $totBlock ]; then
 fi
 
 # check blips
-blipCount=`ls *phase*.nii.gz | wc -l`
-if [ $blipCount != $phaseLen ]; then
-	echo "Replace user and try again - number of blips != number of phases" >&2
-	exit 3
+if [ blip == 1 ]; then
+	blipCount=`ls *phase*.nii.gz | wc -l`
+	if [ $blipCount != $phaseLen ]; then
+		echo "Replace user and try again - number of blips != number of phases" >&2
+		exit 3
+	fi
 fi
+
 
 
 ### Copy data
