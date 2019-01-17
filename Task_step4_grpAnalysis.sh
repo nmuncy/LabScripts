@@ -250,7 +250,8 @@ fi
 # may have a better solution.
 #
 # Currently, this will only do paired comparisons e.g. BehA vs BehB,
-# but multiple t-tests are supported (AvB, AvC, BvC)
+# but multiple t-tests are supported (AvB, AvC, BvC). Will produce
+# masks for each blur, collapsing across blurs.
 
 
 if [ $doETAC == 1 ]; then
@@ -336,39 +337,41 @@ if [ $doETAC == 1 ]; then
 			# Do ETAC
 			if [ $runIt == 1 ]; then
 
+				# for older versions (just upgrade you lazy cur)
+	            afniVer=`afni -ver | sed 's/[^0-9]//g'`
+	            if [ ${afniVer:7} != 18315 ]; then
+		            echo "AFNI version is not 18.3.15" >&2
+		            exit 1
+	            fi
+
 				if [ ! -f ${out}.B${blur:0:1}.0.nii ] && [ ! -f FINALall_${out}+tlrc.HEAD ]; then
 					source ${outDir}/${out}.sh
 				fi
 
-				# for older versions (just upgrade you lazy cur)      ##### to do: update this for a better solution
-	            afniVer=`afni -ver | sed 's/[^0-9]//g'`
-	            if [ ${afniVer:7} != 18315 ]; then
+			    # pull final output
+			    if [ ! -f FINALall_${out}+tlrc.HEAD ]; then
 
-					for j in ${blurArr[@]}; do
-				        if [ ! -f ${out}_B${j}_allMask+tlrc.HEAD ]; then
+					3dcopy ${out}_clustsim.NN1.ETACmask.global.2sid.5perc.nii.gz FINALall_${out}+tlrc
 
-				            # Extract sig clusters
-				            3dMultiThresh \
-				            -mthresh ${out}_clustsim.NN1.ETAC.mthresh.B${j}.0.5perc.nii \
-				            -input ${out}.B${j}.0.nii \
-				            -1tindex 1 \
-				            -prefix ${out}_B${j}_allMask \
-				            -allmask ${out}_B${j}_binMask
-				        fi
-				    done
+					numBlur=${#blurArr[@]}
+					numPval=${#pval_list[@]}
 
-				    # Stitch together
-				    if [ ! -f FINALall_${out}+tlrc.HEAD ]; then
-						3dMean -sum -prefix FINALall_${out} ${out}_B*_allMask+tlrc.HEAD
-				    fi
+					blurC=0; pvalC=0
+					while [ $blurC -lt $numBlur ]; do
 
-			    else
+						unset hBrick
+						for ((j=1; j<=$numPval; j++)); do
+							hBrick+="$pvalC,"
+							let pvalC=$[$pvalC+1]
+						done
+						hBrick=${hBrick%?}
 
-				    # pull final output
-				    if [ ! -f FINALall_${out}+tlrc.HEAD ]; then
-						3dcopy ${out}_clustsim.NN1.ETACmask.global.2sid.5perc.nii.gz FINALall_${out}+tlrc
-					fi
-			    fi
+						3dbucket -prefix FINAL_b${blurArr[$blurC]}_${out} ${out}_clustsim.NN1.ETACmaskALL.global.2sid.5perc.nii.gz[$hBrick]
+						3dmask_tool -input FINAL_b${blurArr[$blurC]}_${out}+tlrc -union -prefix FINAL_b${blurArr[$blurC]}_allP_${out}
+
+						let blurC=$[$blurC+1]
+					done
+				fi
 		    fi
 		done
 
@@ -377,8 +380,9 @@ if [ $doETAC == 1 ]; then
 
 
 	# clean up
-	mkdir etac_extra etac_scripts
+	mkdir etac_{extra,scripts,indiv}
 	mv *.sh etac_scripts
+	mv FINAL_b* etac_indiv
 	mv Group* etac_extra
 	mv Prior* etac_extra
 	mv global* etac_extra
