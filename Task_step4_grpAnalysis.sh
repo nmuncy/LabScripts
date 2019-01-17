@@ -121,9 +121,20 @@ pval_list=(0.01 0.005 0.001)								# p-value thresholds
 
 
 # MVM vars/arrs
-bsArr=(hold)												# Bx-subject variables (groups)
-bsList=hold													# Needed when bsArr > 1. List where col1 = subj identifier, col2 = group membership (e.g. s1295 Con)
 blurM=2														# blur multiplier, float/int
+bsArr=(OCD Con)												# Bx-subject variables (groups)
+
+cd $workDir
+for i in s*; do
+	tmp=${i/sub-}; group=${tmp%??}
+	if [ $group == 1 ]; then
+		echo -e "$i \t Con" >> ${outDir}/Group_list.txt;
+	elif [ $group == 3 ]; then
+		echo -e "$i \t OCD" >> ${outDir}/Group_list.txt;
+	fi
+done
+
+bsList=${outDir}/Group_list.txt								# Needed when bsArr > 1. List where col1 = subj identifier, col2 = group membership (e.g. s1295 Con)
 
 
 
@@ -395,7 +406,7 @@ fi
 
 
 
-### --- ACF --- ###
+### --- MVM --- ###
 #
 # This will blur both stats and errts files according to $blurM, and
 # then the blurred errts files will be used to model noise with
@@ -485,7 +496,7 @@ if [ $doMVM == 1 ]; then
 
 
 			# header, bx-subj title
-			bsVars="'BSVARS'"
+			bsVars=BSVARS
 			header="Subj $bsVars WSVARS InputFile"
 
 
