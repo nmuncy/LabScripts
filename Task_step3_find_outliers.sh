@@ -26,7 +26,7 @@ module load r/3/5
 workDir=~/compute/STT_bids/derivatives
 grpDir=${workDir}/Analyses/grpAnalysis
 refDir=${workDir}/sub-1295
-maxP=0.03								# max percentage of censored TRs allowed (0.03 = 3%)
+maxP=0.1								# max percentage of censored TRs allowed (0.1 = 10%)
 
 mkdir -p $grpDir
 
@@ -58,15 +58,17 @@ for i in ${deconList[@]}; do
 	done
 
 
-	# determine IQR
+	# determine max
 	print1=${grpDir}/info_IQR_${i}.txt
-	echo -e "IQR \t 1.5IQR-int" > $print1
+	echo -e "IQR \t Max" > $print1
 
 	echo `tail -n +2 $print | awk '{print $2}'` > tmp
 	iqr=`Rscript -e 'd<-scan("stdin", quiet=TRUE)' -e 'IQR(d)' < tmp | awk '{print $2}'`
-	max=`echo $iqr*1.5 | bc `
-	maxN=`printf "%.0f" $max`
-	echo -e "$iqr \t $maxN" >> $print1 && rm tmp
+	iqr15=`echo $iqr*1.5 | bc`
+
+	quantiles=(`Rscript -e 'd<-scan("stdin", quiet=TRUE)' -e 'quantile(d)' < tmp`)
+	max=`echo $iqr15+${quantiles[8]} | bc`
+	echo -e "$iqr \t $max" >> $print1 && rm tmp
 
 
 	# determine which subjs moved too much
@@ -79,7 +81,7 @@ for i in ${deconList[@]}; do
 	arrLen=${#arrSubj[@]}
 
 	c=0; while [ $c -lt $arrLen ]; do
-		if [ ${arrNum[$c]} -ge $maxN ] && [ $(echo ${arrPrp[$c]}'>'$maxP | bc) == 1 ] ; then
+		if [ $(echo ${arrNum[$c]}'>'$max) == 1 ] || [ $(echo ${arrPrp[$c]}'>'$maxP | bc) == 1 ]; then
 
 			echo ${arrSubj[$c]} >> $print2
 		fi
