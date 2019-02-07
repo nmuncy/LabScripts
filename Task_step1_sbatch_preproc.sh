@@ -4,7 +4,7 @@
 #SBATCH --ntasks=6   # number of processor cores (i.e. tasks)
 #SBATCH --nodes=1   # number of nodes
 #SBATCH --mem-per-cpu=8gb   # memory per CPU core
-#SBATCH -J "con1"   # job name
+#SBATCH -J "sttR1"   # job name
 
 # Compatibility variables for PBS. Delete if not needed.
 export PBS_NODEFILE=`/fslapps/fslutils/generate_pbs_nodefile`
@@ -38,18 +38,18 @@ export OMP_NUM_THREADS=$SLURM_CPUS_ON_NODE
 subj=$1
 
 
-###??? update these
-workDir=~/compute/Context_bids/derivatives/$subj
-dataDir=~/compute/Context_bids/$subj
+												###??? update these
+workDir=~/compute/STT_reml/derivatives/$subj
+dataDir=~/compute/STT_reml/$subj
 tempDir=~/bin/Templates/vold2_mni
 template=${tempDir}/vold2_mni_brain+tlrc
 priorDir=${tempDir}/priors_ACT
 
-blip=1										# blip toggle (1=on)
-phaseArr=(STUDY TEST)						# Each PHASE of experiment, in order (TEST1 precedes TEST2 but followed STUDY). This is absolutely necessary - so put something here
-blockArr=(3 3)   							# number of blocks (runs) in each phase. E.g. STUDY had 1 block, TEST1 had 2 blocks. INTEGER!
+blip=0											# blip toggle (1=on)
+phaseArr=(STUDY TEST{1,2})						# Each PHASE of experiment, in order (TEST1 precedes TEST2 but followed STUDY). This is absolutely necessary - so put something here
+blockArr=(1 2 4)   								# number of blocks (runs) in each phase. E.g. STUDY had 1 block, TEST1 had 2 blocks. INTEGER!
 phaseLen=${#phaseArr[@]}
-doREML=0									# toggle for REML preparation (1=on) - not currently working
+doREML=1										# toggle for REML preparation (1=on)
 
 
 
@@ -443,9 +443,8 @@ fi
 ### --- Create Masks --- ###
 #
 # An EPI T1 intersection mask is constructed, then tissue-class
-# masks are created (these are used for REML). There is currently
-# an issue I haven't fixed, because I'm not doing REML yet. The AFNI
-# version of tiss-seg is left, but I prefer the Atropos priors.
+# masks are created (these are used for REML). The AFNI
+# version of tiss-seg is left, but I prefer using Atropos priors.
 
 
 # union inputs (combine Run masks); anat mask; intersecting; group
@@ -467,7 +466,7 @@ if [ ! -f final_anat_mask+tlrc.HEAD ]; then
 fi
 
 
-## segment tissue class, generate masks    				#### to do: fix this section for step2 REML
+## segment tissue class, generate masks
 if [ doREML == 1 ]; then
 
 	## AFNI way
@@ -485,7 +484,7 @@ if [ doREML == 1 ]; then
 	# seg tissue class, with Atropos priors, for REML step
 	if [ ! -f final_mask_GM_eroded+tlrc.HEAD ]; then
 
-		 get priors
+		# get priors
 		tiss=(CSF GMc WM GMs)
 		prior=(Prior{1..4})
 		tissN=${#tiss[@]}
@@ -496,15 +495,18 @@ if [ doREML == 1 ]; then
 		done
 		c3d tmp_GMc.nii.gz tmp_GMs.nii.gz -add -o tmp_GM.nii.gz
 
-		 resample; erode - ### Fix this
+		# resample, erode
 		for i in CSF GM WM; do
 
-			3dresample -master ${block[0]}_volreg_clean+tlrc -rmode NN -input tmp_${i}.nii.gz -prefix final_mask_${i}+tlrc
-			3dmask_tool -input tmp_${i}.nii.gz -dilate_input -1 -prefix tmp_mask_${i}_eroded
+			c3d tmp_${i}.nii.gz -thresh 0.3 1 1 0 -o tmp_${i}_bin.nii.gz
+			3dresample -master ${block[0]}_volreg_clean+tlrc -rmode NN -input tmp_${i}_bin.nii.gz -prefix final_mask_${i}+tlrc
+			3dmask_tool -input tmp_${i}_bin.nii.gz -dilate_input -1 -prefix tmp_mask_${i}_eroded
 			3dresample -master ${block[0]}_volreg_clean+tlrc -rmode NN -input tmp_mask_${i}_eroded+orig -prefix final_mask_${i}_eroded
 		done
 	fi
 fi
+
+
 
 
 ### --- Scale --- ###
