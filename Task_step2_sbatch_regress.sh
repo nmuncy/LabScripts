@@ -4,7 +4,7 @@
 #SBATCH --ntasks=6   # number of processor cores (i.e. tasks)
 #SBATCH --nodes=1   # number of nodes
 #SBATCH --mem-per-cpu=8gb   # memory per CPU core
-#SBATCH -J "sttN2"   # job name
+#SBATCH -J "sttR2"   # job name
 
 # Compatibility variables for PBS. Delete if not needed.
 export PBS_NODEFILE=`/fslapps/fslutils/generate_pbs_nodefile`
@@ -39,24 +39,22 @@ subj=$1
 testMode=$2
 
 
-###??? update these variables/arrays - NEW: only this section needs to be updated!
-parDir=~/compute/STT_bids					  			# parent dir, where derivatives is located
+														###??? update these variables/arrays - NEW: only this section needs to be updated!
+parDir=~/compute/STT_reml					  			# parent dir, where derivatives is located
 workDir=${parDir}/derivatives/$subj
 
-doREML=0												# conduct GLS decon (1=on), runDecons must be 1. NOT CURRENTLY WORKING
-runDecons=1												# toggle for running decon scripts (1=on)
-deconNum=(2 2 2)										# number of planned decons per Phase, corresponds to $phaseArr from step1 (STUDY TEST1 TEST2). E.g. (2 1 1) = the first phase will have 2 deconvolutions, and the second and third phase will both have 1 respectively
+doREML=1												# conduct GLS decon (1=on), runDecons must be 1
+runDecons=1												# toggle for running decon/reml scripts and post hoc (1=on)
+deconNum=(1 2 1)										# number of planned decons per PHASE, corresponds to $phaseArr from step1 (STUDY TEST1 TEST2). E.g. (2 1 1) = the first phase will have 2 deconvolutions, and the second and third phase will both have 1 respectively
 deconLen=(3 3 4.5)										# trial duration for each Phase (argument for BLOCK in deconvolution)
-deconPref=(SpT1 SpT1pT2 T1 T1pT2 T2 T2fT1)				# array of prefix for each planned decon (length must equal sum of $deconNum)
+deconPref=(SpT1 T1 T1pT2 T2)							# array of prefix for each planned decon (length must equal sum of $deconNum)
 
 
 deconTiming=(
 Study_pred_Test1_TF_4_behVect
-Study_pred_Test1_pred_Test2_TF_4_behVect
 Test1_TF_4_behVect
 Test1_pred_Test2_TF_4_behVect
 Test2_TF_4_behVect
-Test2_ref_Test1_TF_4_behVect
 )														# array of timing files for each planned deconvolution (length must == $deconPref)
 
 
@@ -67,21 +65,18 @@ Test2_ref_Test1_TF_4_behVect
 # This section is for setting the behavioral sub-brick labels (beh_foo, beh_bar). If not
 # used (NotLazy=0), then the labels are beh_1, beh_2, etc.
 #
-# In order to work, the arrays below must have a title that matches $deconPref (e.g. arrSpT1)
+# In order to work, the arrays below must have a title that matches $deconPref (e.g. arrSpT1 <- deconPref=(SpT1))
 #
 # Also, the length of the array must be equal to the number of .1D files for the deconvolution
 #
 # The number of arrays should equal the length of $deconTiming
 
-
 NotLazy=1												# 1=on
 
 arrSpT1=(R-Hit R-FA R-CR R-Miss NR)						# arrFoo matches a $deconPref value, one string per .1D file (e.g. arrSpT1=(Hit CR Miss FA))
-arrSpT1pT2=(R-HH R-HF R-FH R-FF R-MCH R-MCF NR)
 arrT1=(T1Hit T1FA T1CR T1Miss NR)
 arrT1pT2=(HH HF FH FF MH MF CH CF NR)
 arrT2=(T2Hit T2FA NR)
-arrT2fT1=(H1H2 H1F2 F1H2 F1F2 M1H2 M1F2 C1H2 C1F2 NR)
 
 
 
@@ -117,22 +112,28 @@ phaseLen=${#phaseArr[@]}
 
 # checks
 if [ ! ${#phaseArr[@]} -gt 0 ]; then
+	echo "" >&2
 	echo "Replace user and try again - problem determinig number of phases and blocks per phase. Check step1 setup. Exit 1" >&2
+	echo "" >&2
 	exit 1
 fi
 
 unset numDecon
 for i in ${deconNum[@]}; do
-	let numDecon+=${deconNum[$i]}
+	numDecon=$(( $numDecon + $i ))
 done
 
 if [ $numDecon != ${#deconTiming[@]} ] || [ $numDecon != ${#deconPref[@]} ]; then
+	echo "" >&2
 	echo "Replace user and try again - number of planned deconvolutions != to number of timing files or prefixes. Exit 2" >&2
+	echo "" >&2
 	exit 2
 fi
 
 if [ $phaseLen != ${#deconNum[@]} ]; then
+	echo "" >&2
 	echo "Replace user and try again - length of $phaseLen != ${#deconNum[@]}. decons for each phase are required. Exit 3" >&2
+	echo "" >&2
 	exit 3
 fi
 
@@ -330,7 +331,7 @@ c=0; count=0; while [ $c -lt $phaseLen ]; do
 	fi
 
 
-	# timeseries of eroded WM 			##### to do: fix this section
+	# timeseries of eroded WM
 	if [ $doREML == 1 ]; then
 		if [ ! -f tmp_allRuns_${phase}_WMe+tlrc.HEAD ] && [ ! -f ${regArr[0]}_stats_REML+tlrc.HEAD ]; then
 
@@ -344,41 +345,49 @@ c=0; count=0; while [ $c -lt $phaseLen ]; do
 	for j in ${regArr[@]}; do
 
 		# kill if decon failed
-		if [ ! -f ${j}_stats+tlrc.HEAD ]; then
-			echo "Decon failed on $j ... Exit 4" >&2
-			exit 4
+		if [ $runDecons == 1 ]; then
+			if [ ! -f ${j}_stats+tlrc.HEAD ]; then
+				echo "" >&2
+				echo "Decon failed on $j ... Exit 4" >&2
+				echo "" >&2
+				exit 4
+			fi
 		fi
 
 
-		if [ $doREML == 1 ]; then  		###### to do: fix this section
+		if [ $runDecons == 1 ]; then
+			if [ $doREML == 1 ]; then
 
-			# REML
-			if [ ! -f ${j}_stats_REML+tlrc.HEAD ]; then
-				tcsh -x ${j}_stats.REML_cmd -dsort ${phase}_WMe_rall+tlrc
-			fi
-
-
-			# kill if REMl failed
-			if [ ! -f ${j}_stats_REML+tlrc.HEAD ]; then
-				echo "REML failed on $j ... Exit 5" >$2
-				exit 5
-			fi
+				# REML
+				if [ ! -f ${j}_stats_REMLvar+tlrc.HEAD ]; then
+					tcsh -x ${j}_stats.REML_cmd -dsort ${phase}_WMe_rall+tlrc
+				fi
 
 
-			# calc SNR, corr
-			if [ ! -f ${j}_TSNR+tlrc.HEAD ]; then
+				# kill if REMl failed
+				if [ ! -f ${j}_stats_REMLvar+tlrc.HEAD ]; then
+					echo "" >&2
+					echo "REML failed on $j ... Exit 5" >&2
+					echo "" >&2
+					exit 5
+				fi
 
-				3dTstat -stdev -prefix tmp_${j}_allNoise ${j}_errts_REML+tlrc"[${countS}]"
 
-				3dcalc -a tmp_${phase}_allSignal+tlrc \
-				-b tmp_${j}_allNoise+tlrc \
-				-c full_mask+tlrc \
-				-expr 'c*a/b' -prefix ${j}_TSNR
+				# calc SNR, corr
+				if [ ! -f ${j}_TSNR+tlrc.HEAD ]; then
 
-				3dTnorm -norm2 -prefix tmp_${j}_errts_unit ${j}_errts_REML+tlrc
-				3dmaskave -quiet -mask full_mask+tlrc tmp_${j}_errts_unit+tlrc > ${j}_gmean_errts_unit.1D
-				3dcalc -a tmp_${j}_errts_unit+tlrc -b ${j}_gmean_errts_unit.1D -expr 'a*b' -prefix tmp_${j}_DP
-				3dTstat -sum -prefix ${j}_corr_brain tmp_${j}_DP+tlrc
+					3dTstat -stdev -prefix tmp_${j}_allNoise ${j}_errts_REML+tlrc"[${countS}]"
+
+					3dcalc -a tmp_${phase}_allSignal+tlrc \
+					-b tmp_${j}_allNoise+tlrc \
+					-c full_mask+tlrc \
+					-expr 'c*a/b' -prefix ${j}_TSNR
+
+					3dTnorm -norm2 -prefix tmp_${j}_errts_unit ${j}_errts_REML+tlrc
+					3dmaskave -quiet -mask full_mask+tlrc tmp_${j}_errts_unit+tlrc > ${j}_gmean_errts_unit.1D
+					3dcalc -a tmp_${j}_errts_unit+tlrc -b ${j}_gmean_errts_unit.1D -expr 'a*b' -prefix tmp_${j}_DP
+					3dTstat -sum -prefix ${j}_corr_brain tmp_${j}_DP+tlrc
+				fi
 			fi
 		fi
 
@@ -386,7 +395,7 @@ c=0; count=0; while [ $c -lt $phaseLen ]; do
 		# detect pairwise cor
 		1d_tool.py -show_cormat_warnings -infile X.${j}.xmat.1D | tee out.${j}.cormat_warn.txt
 	done
-	let c=$[$+1]
+	let c=$[$c+1]
 done
 
 
@@ -416,56 +425,58 @@ done
 # organize files for what gen*py needs
 3dcopy full_mask+tlrc full_mask.${subj}+tlrc
 
-for i in ${phaseArr[@]}; do
+if [ $runDecons == 1 ]; then
+	for i in ${phaseArr[@]}; do
 
-	cat outcount.run-*${i}.1D > outcount_all_${i}.1D
+		cat outcount.run-*${i}.1D > outcount_all_${i}.1D
 
-	c=1; for j in run-*${i}*+orig.HEAD; do
+		c=1; for j in run-*${i}*+orig.HEAD; do
 
-		prefix=${j%+*}
-		3dcopy ${j%.*} pb00.${subj}.r0${c}.tcat
-		3dcopy ${prefix}_volreg_clean+tlrc pb02.${subj}.r0${c}.volreg
+			prefix=${j%+*}
+			3dcopy ${j%.*} pb00.${subj}.r0${c}.tcat
+			3dcopy ${prefix}_volreg_clean+tlrc pb02.${subj}.r0${c}.volreg
 
-		let c=$[$c+1]
+			let c=$[$c+1]
+		done
+
+
+		for k in ${deconPref[@]}; do
+
+			# a touch more organization (gen*py is very needy)
+			dset=${k}_stats+tlrc
+			cp X.${k}.xmat.1D X.xmat.1D
+			3dcopy ${k}_errts+tlrc errts.${subj}+tlrc
+
+
+			# generate script
+			gen_ss_review_scripts.py \
+			-subj ${subj} \
+			-rm_trs 0 \
+			-motion_dset dfile_rall_${i}.1D \
+			-outlier_dset outcount_all_${i}.1D \
+			-enorm_dset  motion_${i}_enorm.1D \
+			-mot_limit 0.3 \
+			-out_limit 0.1 \
+			-xmat_regress X.${k}.xmat.1D \
+			-xmat_uncensored X.${k}.nocensor.xmat.1D \
+			-stats_dset ${dset} \
+			-final_anat final_anat+tlrc \
+			-final_view tlrc \
+			-exit0
+
+
+			# run script - write an output for e/analysis
+			./\@ss_review_basic | tee out_summary_${k}.txt
+
+
+			# clean
+			rm errts.*
+			rm X.xmat.1D
+			rm pb0*
+			rm *ss_review*
+		done
 	done
-
-
-	for k in ${deconPref[@]}; do
-
-		# a touch more organization (gen*py is very needy)
-		dset=${k}_stats+tlrc
-		cp X.${k}.xmat.1D X.xmat.1D
-		3dcopy ${k}_errts+tlrc errts.${subj}+tlrc
-
-
-		# generate script
-		gen_ss_review_scripts.py \
-		-subj ${subj} \
-		-rm_trs 0 \
-		-motion_dset dfile_rall_${i}.1D \
-		-outlier_dset outcount_all_${i}.1D \
-		-enorm_dset  motion_${i}_enorm.1D \
-		-mot_limit 0.3 \
-		-out_limit 0.1 \
-		-xmat_regress X.${k}.xmat.1D \
-		-xmat_uncensored X.${k}.nocensor.xmat.1D \
-		-stats_dset ${dset} \
-		-final_anat final_anat+tlrc \
-		-final_view tlrc \
-		-exit0
-
-
-		# run script - write an output for e/analysis
-		./\@ss_review_basic | tee out_summary_${k}.txt
-
-
-		# clean
-		rm errts.*
-		rm X.xmat.1D
-		rm pb0*
-		rm *ss_review*
-	done
-done
+fi
 
 
 
