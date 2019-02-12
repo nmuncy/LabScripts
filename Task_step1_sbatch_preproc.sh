@@ -467,7 +467,7 @@ fi
 
 
 ## segment tissue class, generate masks
-if [ doREML == 1 ]; then
+if [ $doREML == 1 ]; then
 
 	## AFNI way
 	#3dSeg -anat final_anat+tlrc -mask AUTO -classes 'CSF ; GM ; WM'
