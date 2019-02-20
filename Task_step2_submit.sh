@@ -4,11 +4,11 @@
 
 
 ###??? update these
-workDir=~/compute/STT_bids
+workDir=~/compute/STT_reml
 scriptDir=${workDir}/code
 slurmDir=${workDir}/derivatives/Slurm_out
 time=`date '+%Y_%m_%d-%H_%M_%S'`
-outDir=${slurmDir}/sttN2_${time}
+outDir=${slurmDir}/sttR2_${time}
 
 mkdir -p $outDir
 

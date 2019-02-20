@@ -488,15 +488,15 @@ fi
 
 
 
-# clean
-if [ $testMode == 1 ]; then
-	rm tmp_*
-	rm -r a*
-	rm final_mask_{CSF,GM}*
-	rm *corr_brain*
-	rm *gmean_errts*
-	rm *volreg*
-	rm Temp*
-	rm *WMe_rall*
-	rm full_mask.*
-fi
+## clean
+#if [ $testMode == 1 ]; then
+	#rm tmp_*
+	#rm -r a*
+	#rm final_mask_{CSF,GM}*
+	#rm *corr_brain*
+	#rm *gmean_errts*
+	#rm *volreg*
+	#rm Temp*
+	#rm *WMe_rall*
+	#rm full_mask.*
+#fi
