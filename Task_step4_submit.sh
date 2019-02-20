@@ -4,7 +4,7 @@
 
 
 
-workDir=~/compute/STT_bids
+workDir=~/compute/STT_reml
 slurmDir=${workDir}/derivatives/Slurm_out
 time=`date '+%Y_%m_%d-%H_%M_%S'`
 outDir=${slurmDir}/sttN4_${time}
