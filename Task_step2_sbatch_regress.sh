@@ -28,7 +28,7 @@ export OMP_NUM_THREADS=$SLURM_CPUS_ON_NODE
 # 2) Can do a variable number of deconvolutions for each phase of the experiment
 #		generates the scripts, and then runs them - turn off $runDecons for simple script generation
 #
-# 3) Currently assumes timing files exist in derivatives/sub-123/timing_files, and are in .1D format
+# 3) Assumes timing files exist in derivatives/sub-123/timing_files, and are in .1D format
 #
 # 4) Only the variables at the beginning of the script need to be updated (this is NEW and COOL)
 
@@ -135,6 +135,14 @@ if [ $phaseLen != ${#deconNum[@]} ]; then
 	echo "Replace user and try again - length of $phaseLen != ${#deconNum[@]}. decons for each phase are required. Exit 3" >&2
 	echo "" >&2
 	exit 3
+fi
+
+tfCount=`ls timing_files/*.01.1D | wc -l`
+if [ $tfCount == 0 ]; then
+	echo "" >&2
+	echo "Replace user and try again - did not detect dir \"timing_files\" or timing_files/*01.1D in $workDir. Exit 4" >&2
+	echo "" >&2
+	exit 4
 fi
 
 
@@ -333,7 +341,7 @@ c=0; count=0; while [ $c -lt $phaseLen ]; do
 
 	# timeseries of eroded WM
 	if [ $doREML == 1 ]; then
-		if [ ! -f tmp_allRuns_${phase}_WMe+tlrc.HEAD ] && [ ! -f ${regArr[0]}_stats_REML+tlrc.HEAD ]; then
+		if [ ! -f ${phase}_WMe_rall+tlrc.HEAD ]; then
 
 			3dTcat -prefix tmp_allRuns_${phase} run-*${phase}_volreg_clean+tlrc.HEAD
 			3dcalc -a tmp_allRuns_${phase}+tlrc -b final_mask_WM_eroded+tlrc -expr "a*bool(b)" -datum float -prefix tmp_allRuns_${phase}_WMe
@@ -348,9 +356,9 @@ c=0; count=0; while [ $c -lt $phaseLen ]; do
 		if [ $runDecons == 1 ]; then
 			if [ ! -f ${j}_stats+tlrc.HEAD ]; then
 				echo "" >&2
-				echo "Decon failed on $j ... Exit 4" >&2
+				echo "Decon failed on $j ... Exit 5" >&2
 				echo "" >&2
-				exit 4
+				exit 5
 			fi
 		fi
 
@@ -359,17 +367,17 @@ c=0; count=0; while [ $c -lt $phaseLen ]; do
 			if [ $doREML == 1 ]; then
 
 				# REML
-				if [ ! -f ${j}_stats_REMLvar+tlrc.HEAD ]; then
+				if [ ! -f ${j}_stats_REML+tlrc.HEAD ]; then
 					tcsh -x ${j}_stats.REML_cmd -dsort ${phase}_WMe_rall+tlrc
 				fi
 
 
 				# kill if REMl failed
-				if [ ! -f ${j}_stats_REMLvar+tlrc.HEAD ]; then
+				if [ ! -f ${j}_stats_REML+tlrc.HEAD ]; then
 					echo "" >&2
-					echo "REML failed on $j ... Exit 5" >&2
+					echo "REML failed on $j ... Exit 6" >&2
 					echo "" >&2
-					exit 5
+					exit 6
 				fi
 
 
