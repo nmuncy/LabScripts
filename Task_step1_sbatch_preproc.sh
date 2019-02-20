@@ -38,18 +38,18 @@ export OMP_NUM_THREADS=$SLURM_CPUS_ON_NODE
 subj=$1
 
 
-												###??? update these
+###??? update these
 workDir=~/compute/STT_reml/derivatives/$subj
 dataDir=~/compute/STT_reml/$subj
 tempDir=~/bin/Templates/vold2_mni
 template=${tempDir}/vold2_mni_brain+tlrc
 priorDir=${tempDir}/priors_ACT
 
-blip=0											# blip toggle (1=on)
+blip=0										# blip toggle (1=on)
 phaseArr=(STUDY TEST{1,2})						# Each PHASE of experiment, in order (TEST1 precedes TEST2 but followed STUDY). This is absolutely necessary - so put something here
-blockArr=(1 2 4)   								# number of blocks (runs) in each phase. E.g. STUDY had 1 block, TEST1 had 2 blocks. INTEGER!
+blockArr=(1 2 4)   							# number of blocks (runs) in each phase. E.g. STUDY had 1 block, TEST1 had 2 blocks. INTEGER!
 phaseLen=${#phaseArr[@]}
-doREML=1										# toggle for REML preparation (1=on)
+doREML=1									# toggle for REML preparation (1=on) - not currently working
 
 
 
@@ -388,7 +388,7 @@ done
 
 # create extents mask, delete TRs w/missing data
 for j in ${block[@]}; do
-	if [ ! -f ${block[0]}_scale+tlrc.HEAD ]; then
+	if [ ! -f ${j}_volreg_clean+tlrc.HEAD ]; then
 
 		if [ $numRuns > 1 ]; then
 			3dMean -datum short -prefix tmp_mean_${j} tmp_${j}*_min+tlrc.HEAD
@@ -443,8 +443,9 @@ fi
 ### --- Create Masks --- ###
 #
 # An EPI T1 intersection mask is constructed, then tissue-class
-# masks are created (these are used for REML). The AFNI
-# version of tiss-seg is left, but I prefer using Atropos priors.
+# masks are created (these are used for REML). There is currently
+# an issue I haven't fixed, because I'm not doing REML yet. The AFNI
+# version of tiss-seg is left, but I prefer the Atropos priors.
 
 
 # union inputs (combine Run masks); anat mask; intersecting; group
