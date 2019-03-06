@@ -16,14 +16,14 @@
 rawDir=/Volumes/Yorick/MriRawData							# location of raw data
 workDir=/Volumes/Yorick/Nate_work/STT_reml					# desired working directory
 
-subjList=(1295 1859 1875 1949 2439 2575 3013 3018 3023 3031 3042 3043 3046 3075 3223 3425 3710 3711 3712 3735 3746 3761 3762 3763 3767 3768 3775 3778 3783 3786 3816 3849 3850 3851 3852)									# list of subjects
+subjList=(1295 1859 1875 1949)								# list of subjects
 session=STT													# scanning session - for raw data organization (ses-STT)
 task=task-stt												# name of task, for epi data naming
 
 epiDirs=(STUDY TEST1{1,2} TEST2{1..4})						# epi dicom directory name/prefix
 t1Dir=t1													# t1 ditto
 t2Dir=HHR													# t2 ditto
-blipDir=()											# blip ditto - names one per scanning phase
+blipDir=()													# blip ditto - one per scanning phase
 
 
 
@@ -39,8 +39,8 @@ done
 for i in ${subjList[@]}; do
 
 	### set up BIDS data dirs
-	anatDir=${workDir}/sub-${i}/anat
-	funcDir=${workDir}/sub-${i}/func
+	anatDir=${workDir}/rawdata/sub-${i}/anat
+	funcDir=${workDir}/rawdata/sub-${i}/func
 	derivDir=${workDir}/derivatives/sub-${i}
 
 	if [ ! -d $anatDir ]; then

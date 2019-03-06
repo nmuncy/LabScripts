@@ -45,18 +45,19 @@ workDir=${parDir}/derivatives/$subj
 
 doREML=1												# conduct GLS decon (1=on), runDecons must be 1
 runDecons=1												# toggle for running decon/reml scripts and post hoc (1=on)
-deconNum=(1 2 1)										# number of planned decons per PHASE, corresponds to $phaseArr from step1 (STUDY TEST1 TEST2). E.g. (2 1 1) = the first phase will have 2 deconvolutions, and the second and third phase will both have 1 respectively
-deconLen=(3 3 4.5)										# trial duration for each Phase (argument for BLOCK in deconvolution)
-deconPref=(SpT1 T1 T1pT2 T2)							# array of prefix for each planned decon (length must equal sum of $deconNum)
 
+deconNum=(2 2 2)										# number of planned decons per PHASE, corresponds to $phaseArr from step1 (STUDY TEST1 TEST2). E.g. (2 1 1) = the first phase will have 2 deconvolutions, and the second and third phase will both have 1 respectively
+deconLen=(3 3 4.5)										# trial duration for each Phase (argument for BLOCK in deconvolution)
+deconPref=(SpT1 SpT1pT2 T1 T1pT2 T2 T2fT1)				# array of prefix for each planned decon (length must equal sum of $deconNum)
 
 deconTiming=(
 Study_pred_Test1_TF_4_behVect
+Study_pred_Test1_pred_Test2_TF_4_behVect
 Test1_TF_4_behVect
 Test1_pred_Test2_TF_4_behVect
 Test2_TF_4_behVect
+Test2_ref_Test1_TF_4_behVect
 )														# array of timing files for each planned deconvolution (length must == $deconPref)
-
 
 
 
@@ -74,9 +75,11 @@ Test2_TF_4_behVect
 NotLazy=1												# 1=on
 
 arrSpT1=(R-Hit R-FA R-CR R-Miss NR)						# arrFoo matches a $deconPref value, one string per .1D file (e.g. arrSpT1=(Hit CR Miss FA))
+arrSpT1pT2=(R-HH R-HF R-FH R-FF R-MCH R-MCF NR)
 arrT1=(T1Hit T1FA T1CR T1Miss NR)
 arrT1pT2=(HH HF FH FF MH MF CH CF NR)
 arrT2=(T2Hit T2FA NR)
+arrT2fT1=(H1H2 H1F2 F1H2 F1F2 M1H2 M1F2 C1H2 C1F2 NR)
 
 
 
@@ -113,7 +116,7 @@ phaseLen=${#phaseArr[@]}
 # checks
 if [ ! ${#phaseArr[@]} -gt 0 ]; then
 	echo "" >&2
-	echo "Replace user and try again - problem determinig number of phases and blocks per phase. Check step1 setup. Exit 1" >&2
+	echo "Problem determinig number of phases and blocks per phase. Check step1 setup. Exit 1" >&2
 	echo "" >&2
 	exit 1
 fi
@@ -125,14 +128,14 @@ done
 
 if [ $numDecon != ${#deconTiming[@]} ] || [ $numDecon != ${#deconPref[@]} ]; then
 	echo "" >&2
-	echo "Replace user and try again - number of planned deconvolutions != to number of timing files or prefixes. Exit 2" >&2
+	echo "Number of planned deconvolutions != to number of timing files or prefixes. Exit 2" >&2
 	echo "" >&2
 	exit 2
 fi
 
 if [ $phaseLen != ${#deconNum[@]} ]; then
 	echo "" >&2
-	echo "Replace user and try again - length of $phaseLen != ${#deconNum[@]}. decons for each phase are required. Exit 3" >&2
+	echo "Length of $phaseLen != ${#deconNum[@]}. decons for each phase are required. Exit 3" >&2
 	echo "" >&2
 	exit 3
 fi
@@ -140,7 +143,7 @@ fi
 tfCount=`ls timing_files/*.01.1D | wc -l`
 if [ $tfCount == 0 ]; then
 	echo "" >&2
-	echo "Replace user and try again - did not detect dir \"timing_files\" or timing_files/*01.1D in $workDir. Exit 4" >&2
+	echo "Did not detect dir \"timing_files\" or timing_files/*01.1D in $workDir. Exit 4" >&2
 	echo "" >&2
 	exit 4
 fi
@@ -488,15 +491,15 @@ fi
 
 
 
-## clean
-#if [ $testMode == 1 ]; then
-	#rm tmp_*
-	#rm -r a*
-	#rm final_mask_{CSF,GM}*
-	#rm *corr_brain*
-	#rm *gmean_errts*
-	#rm *volreg*
-	#rm Temp*
-	#rm *WMe_rall*
-	#rm full_mask.*
-#fi
+# clean
+if [ $testMode == 1 ]; then
+	rm tmp_*
+	rm -r a*
+	rm final_mask_{CSF,GM}*
+	rm *corr_brain*
+	rm *gmean_errts*
+	rm *volreg*
+	rm Temp*
+	rm *WMe_rall*
+	rm full_mask.*
+fi

@@ -12,7 +12,7 @@ outDir=${slurmDir}/sttR2_${time}
 
 mkdir -p $outDir
 
-cd $workDir
+cd ${workDir}/derivatives
 for i in sub*; do
 
 	[ $i == sub-1295 ]; test=$?

@@ -39,17 +39,21 @@ subj=$1
 
 
 ###??? update these
-workDir=~/compute/STT_reml/derivatives/$subj
-dataDir=~/compute/STT_reml/$subj
+parDir=~/compute/STT_reml
+workDir=${parDir}/derivatives/$subj
+dataDir=${parDir}/rawdata/$subj
+
 tempDir=~/bin/Templates/vold2_mni
 template=${tempDir}/vold2_mni_brain+tlrc
 priorDir=${tempDir}/priors_ACT
 
 blip=0										# blip toggle (1=on)
-phaseArr=(STUDY TEST{1,2})						# Each PHASE of experiment, in order (TEST1 precedes TEST2 but followed STUDY). This is absolutely necessary - so put something here
+doREML=1									# toggle for REML preparation (1=on)
+
+phaseArr=(STUDY TEST{1,2})					# Each PHASE of experiment, in order (TEST1 precedes TEST2 but followed STUDY). This is absolutely necessary - so put something here
 blockArr=(1 2 4)   							# number of blocks (runs) in each phase. E.g. STUDY had 1 block, TEST1 had 2 blocks. INTEGER!
 phaseLen=${#phaseArr[@]}
-doREML=1									# toggle for REML preparation (1=on) - not currently working
+
 
 
 
@@ -65,7 +69,7 @@ doREML=1									# toggle for REML preparation (1=on) - not currently working
 cd ${dataDir}/func
 
 if [ ${#phaseArr[@]} != ${#blockArr[@]} ]; then
-	echo "Replace user and try again - $phaseArr and $blockArr are not same length" >&2
+	echo "$phaseArr and $blockArr are not same length. Exit 1" >&2
 	exit 1
 fi
 
@@ -77,7 +81,7 @@ done
 
 runCount=`ls *run*.nii.gz | wc -l`
 if [ $runCount != $totBlock ]; then
-	echo "Replace user and try again - sum of $blockArr and number of runs are not equal" >&2
+	echo "Sum of $blockArr and number of runs are not equal. Exit 2" >&2
 	exit 2
 fi
 
@@ -85,7 +89,7 @@ fi
 if [ blip == 1 ]; then
 	blipCount=`ls *phase*.nii.gz | wc -l`
 	if [ $blipCount != $phaseLen ]; then
-		echo "Replace user and try again - number of blips != number of phases" >&2
+		echo "Number of blips != number of phases. Exit 3" >&2
 		exit 3
 	fi
 fi

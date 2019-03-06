@@ -1,5 +1,24 @@
 #!/bin/bash
 
+#SBATCH --time=40:00:00   # walltime
+#SBATCH --ntasks=6   # number of processor cores (i.e. tasks)
+#SBATCH --nodes=1   # number of nodes
+#SBATCH --mem-per-cpu=6gb   # memory per CPU core
+#SBATCH -J "sttR5"   # job name
+
+# Compatibility variables for PBS. Delete if not needed.
+export PBS_NODEFILE=`/fslapps/fslutils/generate_pbs_nodefile`
+export PBS_JOBID=$SLURM_JOB_ID
+export PBS_O_WORKDIR="$SLURM_SUBMIT_DIR"
+export PBS_QUEUE=batch
+
+# Set the max number of threads to use for programs using OpenMP. Should be <= ppn. Does nothing if the program doesn't use OpenMP.
+export OMP_NUM_THREADS=$SLURM_CPUS_ON_NODE
+
+
+
+
+
 
 # Written by Nathan Muncy on 11/28/18
 
@@ -14,24 +33,28 @@
 #
 # 3) assumes that decon files exist locally (bring them back from the supercomputer)
 #
-# 4) Written for the output of ETAC - will pull betas for each appropriate blur from eaach cluster
+# 4) Written for the output of ETAC - will pull betas for each appropriate blur from each cluster
 
 
 
 # Variables
-workDir=/Volumes/Yorick/STT_bids/derivatives						###??? Update this section
-grpDir=${workDir}/Analyses/grpAnalysis
+parDir=~/compute/STT_reml
+workDir=${parDir}/derivatives										###??? Update this section
+grpDir=${parDir}/Analyses/grpAnalysis
 clustDir=${grpDir}/etac_clusters
 outDir=${grpDir}/etac_betas
-refFile=${workDir}/sub-1295/run-1_STUDY_scale+tlrc					# reference file for dimensions etc
+refDir=${workDir}/sub-1295											# reference file for dimensions etc
 
 
 fileArr=(SpT1 SpT1pT2 T1 T1pT2 T2 T2fT1)							# decon files from which betas will be extracted - should match step4.
-arrA=(33 39 53 59 97 97)											# sub-bricks corresponding to $fileArr
-arrB=(36 42 56 62 100 103)
+arrA=(1 7 1 7 1 1)													# sub-bricks corresponding to $fileArr
+arrB=(4 10 4 10 4 7)
 arrLen=${#arrA[@]}
 
 blurX=({2..4})														# blur mulitpliers from previous steps
+doREML=1
+
+
 
 
 # function - search array for string
@@ -46,12 +69,18 @@ MatchString (){
 # check
 test1=${#fileArr[@]}; test2=${#arrB[@]}
 if [ $test1 != $arrLen ] || [ $test2 != $arrLen ]; then
-	echo "Replace user and try again - script set up incorreclty" >&2
+	echo "Script set up incorreclty. Exit 1" >&2
 	exit 1
 fi
 
 
 # determine blur
+if [ $doREML == 1 ]; then
+	refFile=${refDir}/${fileArr[0]}_stats_REML+tlrc
+else
+	refFile=${refDir}/${fileArr[0]}_stats+tlrc
+fi
+
 gridSize=`3dinfo -dk $refFile`
 int=`printf "%.0f" $gridSize`
 
@@ -78,7 +107,7 @@ for i in FINAL_*allP*.HEAD; do
 		3dclust -1Dformat -nosum -1dindex 0 \
 		-1tindex 0 -2thresh -0.5 0.5 -dxyz=1 \
 		-savemask Clust_${pref}_${blur}_mask \
-		1.01 20 $i > Clust_${pref}_${blur}_table.txt
+		1.01 5 $i > Clust_${pref}_${blur}_table.txt
 	fi
 done
 
@@ -139,14 +168,20 @@ c=0; while [ $c -lt $arrLen ]; do
 				> $print
 
 				for j in ${subjList[@]}; do
-					subjDir=${workDir}/${j}
 
-					# blur
-					if [ ! -f ${subjDir}/${hold}_stats_blur${blurInt}+tlrc.HEAD ]; then
-						3dmerge -prefix ${subjDir}/${hold}_stats_blur${blurInt} -1blur_fwhm $blurInt -doall ${subjDir}/${hold}_stats+tlrc
+					subjDir=${workDir}/${j}
+					if [ $doREML == 1 ]; then
+						decon=stats_REML
+					else
+						decon=stats
 					fi
 
-					file=${subjDir}/${hold}_stats_blur${blurInt}+tlrc
+					# blur
+					if [ ! -f ${subjDir}/${hold}_${decon}_blur${blurInt}+tlrc.HEAD ]; then
+						3dmerge -prefix ${subjDir}/${hold}_${decon}_blur${blurInt} -1blur_fwhm $blurInt -doall ${subjDir}/${hold}_${decon}+tlrc
+					fi
+
+					file=${subjDir}/${hold}_${decon}_blur${blurInt}+tlrc
 					stats=`3dROIstats -mask $i "${file}[${betas}]"`
 					echo "$j $stats" >> $print
 				done
@@ -156,44 +191,3 @@ c=0; while [ $c -lt $arrLen ]; do
 	done
 	let c=$[$c+1]
 done
-
-
-
-#### organize prints into Master files
-#cd $outDir
-
-## make master files
-#for i in Betas*_c1.txt; do
-
-	#tmp=${i#*_}
-	#string=${tmp%_*}
-    #> Master_${string}_betas.txt
-#done
-
-
-## fill master files
-#for j in Betas*; do
-
-    #tmp1=${j#*_}
-	#tmp2=${j##*_}
-
-	#maskN=${tmp2%.*}
-	#string=${tmp1%_c*}
-	#print=Master_${string}_betas.txt
-
-	#echo "Mask $maskN" >> $print
-	#cat $j >> $print
-	#echo >> $print
-#done
-
-
-## make list for R script
-#> Final_List.txt
-#for i in Master*; do
-	#tmp=${i#*_}
-    #echo ${tmp%.*} >> Final_List.txt
-#done
-
-
-# clean
-#rm Betas*txt

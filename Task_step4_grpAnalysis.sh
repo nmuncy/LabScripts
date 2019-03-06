@@ -4,7 +4,7 @@
 #SBATCH --ntasks=10   # number of processor cores (i.e. tasks)
 #SBATCH --nodes=1   # number of nodes
 #SBATCH --mem-per-cpu=10gb   # memory per CPU core
-#SBATCH -J "sttN4"   # job name
+#SBATCH -J "sttR4"   # job name
 
 # Compatibility variables for PBS. Delete if not needed.
 export PBS_NODEFILE=`/fslapps/fslutils/generate_pbs_nodefile`
@@ -86,8 +86,9 @@ export OMP_NUM_THREADS=$SLURM_CPUS_ON_NODE
 
 
 # General variables
-workDir=~/compute/STT_reml/derivatives						# par dir of data
-outDir=${workDir}/Analyses/grpAnalysis						# where output will be written (should match step3)
+parDir=~/compute/STT_reml
+workDir=${parDir}/derivatives								# par dir of data
+outDir=${parDir}/Analyses/grpAnalysis						# where output will be written (should match step3)
 refFile=${workDir}/sub-1295/run-1_STUDY_scale+tlrc			# reference file, for finding dimensions etc
 
 tempDir=~/bin/Templates/vold2_mni							# desired template
@@ -96,23 +97,23 @@ mask=Intersection_GM_mask+tlrc								# this will be made, just specify name for
 
 
 # grpAnalysis
-doETAC=1													# Toggle ETAC analysis
-doMVM=0														# MVM
-runIt=1														# whether ETAC/MVM scripts actually run (and not just written)
+doETAC=1													# Toggle ETAC analysis (1)
+doMVM=0														# MVM (1)
+runIt=1														# whether ETAC/MVM scripts actually run (and not just written) (1)
 
 doREML=1													# Toggle to use REML (1) or decon files
 thr=0.3														# thresh value for Group_EPI_mask, ref Group_EPI_mean
 
-compList=(SpT1 T1 T1pT2 T2)									# matches decon prefixes, and will be prefix of output files
+compList=(SpT1 SpT1pT2 T1 T1pT2 T2 T2fT1)					# matches decon prefixes, and will be prefix of output files
 compLen=${#compList[@]}
 
-arrA=(1 1 7 1)												# setA beh sub-brik for compList. Must be same length as compList
-arrB=(4 4 10 4)												# setB
+arrA=(1 7 1 7 1 1)											# setA beh sub-brik for compList. Must be same length as compList
+arrB=(4 10 4 10 4 7)										# setB
 #arrC=(39 59 65)
 listX=AB													# list of arr? used, for building permutations (e.g. listX=ABC)
 
-namA=(RpH Hit FpH Hit)										# names of behaviors from arrA. Must be same length as arrA
-namB=(RpF FA  FpF FA)
+namA=(RpH RpFH Hit FpH Hit HpH)								# names of behaviors from arrA. Must be same length as arrA
+namB=(RpF RpFF FA  FpF FA  FpH)
 #namC=(RpCR CR MpH)
 
 
@@ -180,7 +181,7 @@ MakePerm () {
 # check
 if [ ${#arrA[@]} != ${#arrB[@]} ] || [ ${#arrA[@]} != $compLen ]; then
 	echo >&2
-	echo "Replace user and try again - grpAnalysis variables incorrect. Exit 1" >&2
+	echo "grpAnalysis variables incorrect. Exit 1" >&2
 	echo >&2
 	exit 1
 fi
@@ -188,7 +189,7 @@ fi
 if [ $doMVM == 1 ]; then
 	if [ ${#bsArr[@]} -gt 1 ] && [ ! -s $bsList ]; then
 		echo >&2
-		echo "Replace user and try again - MVM vars/arrs incorrect. Exit 2" >&2
+		echo "MVM vars/arrs incorrect. Exit 2" >&2
 		echo >&2
 		exit 2
 	fi
@@ -197,7 +198,7 @@ fi
 if [ $doREML == 1 ]; then
 	if [ ! -f ${refFile%\/*}/${compList[0]}_stats_REML+tlrc.HEAD ]; then
 		echo >&2
-		echo "Replace user and try again - REML output not detected. Exit 3" >&2
+		echo "REML output not detected. Exit 3" >&2
 		echo >&2
 		exit 3
 	fi
@@ -266,7 +267,7 @@ if [ $runIt == 1 ]; then
 
 	if [ ! -f ${mask}.HEAD ]; then
 		echo >&2
-		echo "Replace user and try again - could not construct $mask. Exit 5" >&2
+		echo "Could not construct $mask. Exit 5" >&2
 		echo >&2
 		exit 5
 	fi
@@ -384,18 +385,19 @@ if [ $doETAC == 1 ]; then
 
 			# Do ETAC
 			if [ $runIt == 1 ]; then
+				if [ ! -f ${out}_clustsim.NN1.ETACmask.global.2sid.5perc.nii.gz ] && [ ! -f FINALall_${out}+tlrc.HEAD ]; then
 
-				if [ ! -f ${out}.B${blur:0:1}.0.nii ] && [ ! -f FINALall_${out}+tlrc.HEAD ]; then
 					source ${outDir}/${out}.sh
+
+					# check output
+					if [ ! -f ${out}_clustsim.NN1.ETACmask.global.2sid.5perc.nii.gz ] && [ ! -f etac_extra/${out}_clustsim.NN1.ETACmask.global.2sid.5perc.nii.gz ]; then
+						echo >&2
+						echo "ETAC failed on $out. Exiting. Exit 7" >&2
+						echo >&2
+						exit 7
+					fi
 				fi
 
-				# check output
-				if [ ! -f ${out}_clustsim.NN1.ETACmask.global.2sid.5perc.nii.gz ]; then
-					echo >&2
-					echo "ETAC failed on $out. Exiting. Exit 7"
-					echo >&2
-					exit 7
-				fi
 
 			    # pull final output
 			    if [ ! -f FINALall_${out}+tlrc.HEAD ]; then
